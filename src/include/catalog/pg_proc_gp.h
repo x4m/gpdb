@@ -983,8 +983,8 @@ DESCR("Legacy cdbhash function");
 DATA(insert OID = 6171 ( cdblegacyhash_anyenum  PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 23 "3500" _null_ _null_ _null_ _null_ cdblegacyhash_anyenum _null_ _null_ _null_ n a ));
 DESCR("Legacy cdbhash function");
 
-/* gp_create_restore_point(text) => bool */
-DATA(insert OID = 6998 ( gp_create_restore_point  PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 16 "25" _null_ _null_ _null_ _null_ gp_create_restore_point _null_ _null_ _null_ n a ));
+/* gp_create_restore_point(text) => SETOF record */
+DATA(insert OID = 6998 ( gp_create_restore_point  PGNSP PGUID 12 1 1000 0 0 f f f f t t i 1 0 2249 "25" _null_ _null_ _null_ _null_ gp_create_restore_point _null_ _null_ _null_ n a ));
 DESCR("Create a named restore point on all segments");
 
 
