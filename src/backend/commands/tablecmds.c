@@ -12723,13 +12723,13 @@ ATExecClusterOn(Relation rel, const char *indexName, LOCKMODE lockmode)
 	Oid			indexOid;
 	ObjectAddress address;
 
-	if (RelationIsAppendOptimized(rel))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("cannot cluster append-only table \"%s\": not supported",
-						RelationGetRelationName(rel))));
-	}
+	// if (RelationIsAppendOptimized(rel))
+	// {
+	// 	ereport(ERROR,
+	// 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	// 			 errmsg("cannot cluster append-only table \"%s\": not supported",
+	// 					RelationGetRelationName(rel))));
+	// }
 
 	indexOid = get_relname_relid(indexName, rel->rd_rel->relnamespace);
 
