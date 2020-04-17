@@ -2915,6 +2915,24 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
  * RelationGetNumberOfBlocksInFork
  *		Determines the current number of pages in the specified relation fork.
  */
+#include <execinfo.h>
+
+void
+print_stack_trace()
+{
+	void	   *buf[100];
+	int			nframes;
+	char**strings;
+
+	nframes = backtrace(buf, lengthof(buf));
+	strings = backtrace_symbols(buf, nframes);
+	for (int i =0; i<nframes;i++)
+	{
+		elog(WARNING, "BACKTRACE %s", strings[i]);
+	}
+	backtrace_symbols_fd(buf, nframes, fileno(stderr));
+}
+
 BlockNumber
 RelationGetNumberOfBlocksInFork(Relation relation, ForkNumber forkNum)
 {
@@ -2923,7 +2941,11 @@ RelationGetNumberOfBlocksInFork(Relation relation, ForkNumber forkNum)
 	 * the callers do that. But let's check.
 	 */
 	if (RelationIsAppendOptimized(relation))
+	{
+		print_stack_trace();
 		elog(ERROR, "cannot get number of blocks for AO table");
+	}
+
 
 	/* Open it at the smgr level if not already done */
 	RelationOpenSmgr(relation);

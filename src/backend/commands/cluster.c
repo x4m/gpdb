@@ -326,16 +326,16 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose, bool printEr
 	 * We don't support cluster on an AO table. We print out a warning/error to
 	 * the user, and simply return.
 	 */
-	if (RelationIsAppendOptimized(OldHeap))
-	{
-		ereport((printError ? ERROR : WARNING),
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("cannot cluster append-only table \"%s\": not supported",
-						RelationGetRelationName(OldHeap))));
+	// if (RelationIsAppendOptimized(OldHeap))
+	// {
+	// 	ereport((printError ? ERROR : WARNING),
+	// 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+	// 			 errmsg("cannot cluster append-only table \"%s\": not supported",
+	// 					RelationGetRelationName(OldHeap))));
 		
-		relation_close(OldHeap, AccessExclusiveLock);
-		return false;
-	}
+	// 	relation_close(OldHeap, AccessExclusiveLock);
+	// 	return false;
+	// }
 	
 	/*
 	 * Since we may open a new transaction for each relation, we have to check
@@ -1008,7 +1008,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	 * that still need to be copied, we scan with SnapshotAny and use
 	 * HeapTupleSatisfiesVacuum for the visibility test.
 	 */
-	if (OldIndex != NULL && !use_sort)
+	if (RelationIsAppendOptimized(OldHeap) || (OldIndex != NULL && !use_sort))
 	{
 		heapScan = NULL;
 		indexScan = index_beginscan(OldHeap, OldIndex, SnapshotAny, 0, 0);
@@ -1054,6 +1054,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 		if (indexScan != NULL)
 		{
+			elog(NOTICE,"next");
 			tuple = index_getnext(indexScan, ForwardScanDirection);
 			if (tuple == NULL)
 				break;
@@ -1191,14 +1192,14 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	/* Reset rd_toastoid just to be tidy --- it shouldn't be looked at again */
 	NewHeap->rd_toastoid = InvalidOid;
 
-	num_pages = RelationGetNumberOfBlocks(NewHeap);
+	num_pages = acquire_number_of_blocks(NewHeap);
 
 	/* Log what we did */
 	ereport(elevel,
 			(errmsg("\"%s\": found %.0f removable, %.0f nonremovable row versions in %u pages",
 					RelationGetRelationName(OldHeap),
 					tups_vacuumed, num_tuples,
-					RelationGetNumberOfBlocks(OldHeap)),
+					acquire_number_of_blocks(OldHeap)),
 			 errdetail("%.0f dead row versions cannot be removed yet.\n"
 					   "%s.",
 					   tups_recently_dead,

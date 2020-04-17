@@ -466,6 +466,7 @@ index_fetch_heap(IndexScanDesc scan)
 		/* Switch to correct buffer if we don't have it already */
 		Buffer		prev_buf = scan->xs_cbuf;
 
+		elog(NOTICE,"Fetching from block %d item %d",ItemPointerGetBlockNumber(tid),ItemPointerGetOffsetNumber(tid));
 		scan->xs_cbuf = ReleaseAndReadBuffer(scan->xs_cbuf,
 											 scan->heapRelation,
 											 ItemPointerGetBlockNumber(tid));
@@ -562,7 +563,9 @@ index_getnext(IndexScanDesc scan, ScanDirection direction)
 		 * If we don't find anything, loop around and grab the next TID from
 		 * the index.
 		 */
+		elog(NOTICE,"Going to fetch");
 		heapTuple = index_fetch_heap(scan);
+		elog(NOTICE,"fetched");
 		if (heapTuple != NULL)
 			return heapTuple;
 	}

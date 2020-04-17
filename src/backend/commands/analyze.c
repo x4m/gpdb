@@ -179,7 +179,6 @@ static VacAttrStats *examine_attribute(Relation onerel, int attnum,
 static int acquire_sample_rows_dispatcher(Relation onerel, bool inh, int elevel,
 										  HeapTuple *rows, int targrows,
 										  double *totalrows, double *totaldeadrows);
-static BlockNumber acquire_number_of_blocks(Relation onerel);
 static BlockNumber acquire_index_number_of_blocks(Relation indexrel, Relation tablerel);
 
 static int	compare_rows(const void *a, const void *b);
@@ -2100,7 +2099,7 @@ acquire_hll_by_query(Relation onerel, int nattrs, VacAttrStats **attrstats, int 
  * GPDB, we need to deal with AO and AOCS tables, and if we're in the
  * dispatcher, need to get the size from the segments.
  */
-static BlockNumber
+BlockNumber
 acquire_number_of_blocks(Relation onerel)
 {
 	int64		totalbytes;
