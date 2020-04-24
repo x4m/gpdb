@@ -326,19 +326,31 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose, bool printEr
 		return false;
 
 	/*
-	 * We don't support cluster on an AO table. We print out a warning/error to
-	 * the user, and simply return.
+	 * We don't support cluster on an AO table that cannot be sorted.
+	 * We print out a warning/error to the user, and simply return.
 	 */
-	// if (RelationIsAppendOptimized(OldHeap))
-	// {
-	// 	ereport((printError ? ERROR : WARNING),
-	// 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-	// 			 errmsg("cannot cluster append-only table \"%s\": not supported",
-	// 					RelationGetRelationName(OldHeap))));
-		
-	// 	relation_close(OldHeap, AccessExclusiveLock);
-	// 	return false;
-	// }
+	if (RelationIsAppendOptimized(OldHeap))
+	{
+		bool isBtree = false;
+		if (indexOid != InvalidOid)
+		{
+			Relation oldIndex = index_open(indexOid, AccessExclusiveLock);
+			if (oldIndex != NULL && oldIndex->rd_rel != NULL)
+				isBtree = oldIndex->rd_rel->relam == BTREE_AM_OID;
+			index_close(oldIndex, NoLock);
+		}
+
+		if (!isBtree)
+		{
+			ereport((printError ? ERROR : WARNING),
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("cannot cluster append-only table \"%s\": supported only for B-tree",
+							RelationGetRelationName(OldHeap))));
+
+			relation_close(OldHeap, AccessExclusiveLock);
+			return false;
+		}
+	}
 	
 	/*
 	 * Since we may open a new transaction for each relation, we have to check
@@ -999,7 +1011,8 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	 * provided, else plain seqscan.
 	 */
 	if (OldIndex != NULL && OldIndex->rd_rel->relam == BTREE_AM_OID)
-		use_sort = plan_cluster_use_sort(OIDOldHeap, OIDOldIndex);
+		use_sort = is_ao_rows || is_ao_cols ||
+					plan_cluster_use_sort(OIDOldHeap, OIDOldIndex);
 	else
 		use_sort = false;
 
@@ -1021,7 +1034,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	{
 		if (RelationIsAppendOptimized(OldHeap))
 		{
-			ereport((/*printError*/ false ? ERROR : WARNING),
+			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					errmsg("cannot cluster append-only table \"%s\" without index: not supported",
 							RelationGetRelationName(OldHeap))));
@@ -1058,7 +1071,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 	if (is_ao_rows)
 	{
-		elog(NOTICE, "starting filling sort");
 		TupleTableSlot	*slot = MakeSingleTupleTableSlot(oldTupDesc);
 		MemTupleBinding *mt_bind = create_memtuple_binding(oldTupDesc);
 
@@ -1068,8 +1080,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		while (appendonly_getnext(aoscandesc, ForwardScanDirection, slot))
 		{
 			Oid			tupleOid = InvalidOid;
-			elog(NOTICE, "got tuple");
-
 			Datum	   *slot_values;
 			bool	   *slot_isnull;
 			HeapTuple   tuple;
@@ -1091,9 +1101,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			num_tuples += 1;
 			Assert(tuplesort != NULL);
 			tuplesort_putheaptuple(tuplesort, tuple);
-			elog(NOTICE, "done put tuple");
 		}
-		elog(NOTICE, "done filling sort");
 
 		ExecDropSingleTupleTableSlot(slot);
 
@@ -1118,11 +1126,10 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 		while (aocs_getnext(scan, ForwardScanDirection, slot))
 		{
-			CHECK_FOR_INTERRUPTS();
-
 			Datum	   *slot_values;
 			bool	   *slot_isnull;
 			HeapTuple   tuple;
+			CHECK_FOR_INTERRUPTS();
 
 			slot_getallattrs(slot);
 			slot_values = slot_get_values(slot);
@@ -1259,8 +1266,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	if (heapScan != NULL)
 		heap_endscan(heapScan);
 
-	elog(NOTICE, "sorting filled");
-
 	/*
 	 * In scan-and-sort mode, complete the sort, then read out all live tuples
 	 * from the tuplestore and write them to the new relation.
@@ -1272,9 +1277,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		AOCSInsertDesc			idesc = NULL;
 		int						nvp = OldHeap->rd_att->natts;
 		bool				   *proj;
-		elog(NOTICE, "do sorting");
 		tuplesort_performsort(tuplesort);
-		elog(NOTICE, "sorting done");
 
 		if (is_ao_rows)
 		{
@@ -1299,8 +1302,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			if (tuple == NULL)
 				break;
 
-			elog(NOTICE, "got tuple");
-
 			if (is_ao_rows)
 			{
 				AOTupleId	aoTupleId;
@@ -1322,7 +1323,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 										oldTupDesc, newTupDesc,
 										values, isnull,
 										NewHeap->rd_rel->relhasoids, rwstate);
-			elog(NOTICE, "free tuple");
 
 			if (shouldfree)
 				heap_freetuple(tuple);
