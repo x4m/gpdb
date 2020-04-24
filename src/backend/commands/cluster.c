@@ -67,6 +67,7 @@
 #include "catalog/aovisimap.h"
 #include "catalog/oid_dispatch.h"
 #include "cdb/cdbappendonlyam.h"
+#include "cdb/cdbaocsam.h"
 #include "cdb/cdbvars.h"
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdboidsync.h"
@@ -1066,7 +1067,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 		while (appendonly_getnext(aoscandesc, ForwardScanDirection, slot))
 		{
-			//MemTuple	tuple;
 			Oid			tupleOid = InvalidOid;
 			elog(NOTICE, "got tuple");
 
@@ -1091,8 +1091,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			num_tuples += 1;
 			Assert(tuplesort != NULL);
 			tuplesort_putheaptuple(tuplesort, tuple);
-			//tuplesort_puttupleslot(tuplesort, slot);
-			//tuplesort_putindextuplevalues(tuplesort, OldHeap, 0, slot_values, slot_isnull);
 			elog(NOTICE, "done put tuple");
 		}
 		elog(NOTICE, "done filling sort");
@@ -1103,7 +1101,44 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	}
 	else if (is_ao_cols)
 	{
-		Assert(0); // Dzhigurga
+		AOCSScanDesc scan = NULL;
+		TupleTableSlot *slot = MakeSingleTupleTableSlot(oldTupDesc);
+		bool *proj = NULL;
+
+		int nvp = oldTupDesc->natts;
+		int i;
+
+		proj = palloc(sizeof(bool) * nvp);
+		for(i = 0; i < nvp; ++i)
+			proj[i] = true;
+
+		scan = aocs_beginscan(OldHeap, GetActiveSnapshot(),
+								GetActiveSnapshot(),
+								NULL /* relationTupleDesc */, proj);
+
+		while (aocs_getnext(scan, ForwardScanDirection, slot))
+		{
+			CHECK_FOR_INTERRUPTS();
+
+			Datum	   *slot_values;
+			bool	   *slot_isnull;
+			HeapTuple   tuple;
+
+			slot_getallattrs(slot);
+			slot_values = slot_get_values(slot);
+			slot_isnull = slot_get_isnull(slot);
+
+			tuple = heap_form_tuple(oldTupDesc, slot_values, slot_isnull);
+
+			num_tuples += 1;
+			Assert(tuplesort != NULL);
+			tuplesort_putheaptuple(tuplesort, tuple);
+		}
+
+		ExecDropSingleTupleTableSlot(slot);
+		aocs_endscan(scan);
+
+		pfree(proj);
 	}
 	else
 	{
@@ -1234,6 +1269,9 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	{
 		AppendOnlyInsertDesc 	aoInsertDesc = NULL;
 		MemTupleBinding*		mt_bind;
+		AOCSInsertDesc			idesc = NULL;
+		int						nvp = OldHeap->rd_att->natts;
+		bool				   *proj;
 		elog(NOTICE, "do sorting");
 		tuplesort_performsort(tuplesort);
 		elog(NOTICE, "sorting done");
@@ -1245,7 +1283,9 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		}
 		else if (is_ao_cols)
 		{
-			
+			proj = palloc0(sizeof(bool) * nvp);
+			memset(proj, true, nvp);
+			idesc = aocs_insert_init(NewHeap, RESERVED_SEGNO, false);			
 		}
 
 		for (;;)
@@ -1268,12 +1308,14 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 				MemTuple mtuple = memtuple_form_to(mt_bind,
 											  values, isnull,
 											  NULL, NULL, false);
-					
-				appendonly_insert(aoInsertDesc, mtuple, InvalidOid, &aoTupleId);
+
+				appendonly_insert(aoInsertDesc, mtuple, HeapTupleGetOid(tuple), &aoTupleId);
 			}
 			else if (is_ao_cols)
 			{
-				
+				AOTupleId	aoTupleId;
+				heap_deform_tuple(tuple, oldTupDesc, values, isnull);
+				aocs_insert_values(idesc, values, isnull, &aoTupleId);
 			}
 			else
 				reform_and_rewrite_tuple(tuple,
@@ -1289,6 +1331,10 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		if (is_ao_rows)
 		{
 			appendonly_insert_finish(aoInsertDesc);
+		}
+		else if (is_ao_cols)
+		{
+			aocs_insert_finish(idesc);
 		}
 
 		tuplesort_end(tuplesort);
