@@ -2923,10 +2923,7 @@ RelationGetNumberOfBlocksInFork(Relation relation, ForkNumber forkNum)
 	 * the callers do that. But let's check.
 	 */
 	if (RelationIsAppendOptimized(relation))
-	{
 		elog(ERROR, "cannot get number of blocks for AO table");
-	}
-
 
 	/* Open it at the smgr level if not already done */
 	RelationOpenSmgr(relation);
