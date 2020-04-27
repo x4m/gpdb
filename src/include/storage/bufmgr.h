@@ -210,9 +210,7 @@ extern void DropDatabaseBuffers(Oid dbid);
 #define RelationGetNumberOfBlocks(reln) \
 	RelationGetNumberOfBlocksInFork(reln, MAIN_FORKNUM)
 
-extern void print_stack_trace();
-
-extern BlockNumber acquire_number_of_blocks(Relation onerel);
+extern BlockNumber AcquireNumberOfBlocks(Relation onerel);
 
 extern bool BufferIsPermanent(Buffer buffer);
 extern XLogRecPtr BufferGetLSNAtomic(Buffer buffer);

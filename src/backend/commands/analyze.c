@@ -32,10 +32,10 @@
  * acquire_sample_rows(), when called in the dispatcher, calls into the
  * segments to acquire the sample across all segments.
  * RelationGetNumberOfBlocks() calls have been replaced with a wrapper
- * function, acquire_number_of_blocks(), which likewise calls into the
+ * function, AcquireNumberOfBlocks(), which likewise calls into the
  * segments, to get total relation size across all segments.
  *
- * acquire_number_of_blocks() calls pg_relation_size(), which already
+ * AcquireNumberOfBlocks() calls pg_relation_size(), which already
  * contains the logic to gather the size from all segments.
  *
  * Acquiring the sample rows is more tricky. When called in dispatcher,
@@ -334,7 +334,7 @@ analyze_rel_internal(Oid relid, RangeVar *relation, int options,
 		acquirefunc = acquire_sample_rows;
 
 		/* Also get regular table's size */
-		relpages = acquire_number_of_blocks(onerel);
+		relpages = AcquireNumberOfBlocks(onerel);
 	}
 	else if (onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
 	{
@@ -1869,7 +1869,7 @@ acquire_inherited_sample_rows(Relation onerel, int elevel,
 		{
 			/* Regular table, so use the regular row acquisition function */
 			acquirefunc = acquire_sample_rows;
-			relpages = acquire_number_of_blocks(childrel);
+			relpages = AcquireNumberOfBlocks(childrel);
 		}
 		else if (childrel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
 		{
@@ -2100,7 +2100,7 @@ acquire_hll_by_query(Relation onerel, int nattrs, VacAttrStats **attrstats, int 
  * dispatcher, need to get the size from the segments.
  */
 BlockNumber
-acquire_number_of_blocks(Relation onerel)
+AcquireNumberOfBlocks(Relation onerel)
 {
 	int64		totalbytes;
 
@@ -2149,7 +2149,7 @@ acquire_number_of_blocks(Relation onerel)
 /*
  * Compute index relation's size.
  *
- * Like acquire_number_of_blocks(), but for indexes. Indexes don't
+ * Like AcquireNumberOfBlocks(), but for indexes. Indexes don't
  * have a distribution policy, so we use the parent table's policy
  * to determine whether we need to get the size on segments or
  * locally.

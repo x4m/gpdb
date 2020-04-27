@@ -73,6 +73,8 @@
 #include "cdb/cdboidsync.h"
 #include "libpq/pqformat.h"
 
+#define IS_BTREE(r) ((r)->rd_rel->relam == BTREE_AM_OID)
+
 /*
  * This struct is used to pass around the information on tables to be
  * clustered. We need this so we can make a list of them when invoked without
@@ -335,8 +337,7 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose, bool printEr
 		if (indexOid != InvalidOid)
 		{
 			Relation oldIndex = index_open(indexOid, AccessExclusiveLock);
-			if (oldIndex != NULL && oldIndex->rd_rel != NULL)
-				isBtree = oldIndex->rd_rel->relam == BTREE_AM_OID;
+			isBtree = IS_BTREE(oldIndex);
 			index_close(oldIndex, NoLock);
 		}
 
@@ -1010,7 +1011,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	 * tells us it's cheaper.  Otherwise, always indexscan if an index is
 	 * provided, else plain seqscan.
 	 */
-	if (OldIndex != NULL && OldIndex->rd_rel->relam == BTREE_AM_OID)
+	if (OldIndex != NULL && IS_BTREE(OldIndex))
 		use_sort = is_ao_rows || is_ao_cols ||
 					plan_cluster_use_sort(OIDOldHeap, OIDOldIndex);
 	else
@@ -1112,13 +1113,10 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		AOCSScanDesc scan = NULL;
 		TupleTableSlot *slot = MakeSingleTupleTableSlot(oldTupDesc);
 		bool *proj = NULL;
-
 		int nvp = oldTupDesc->natts;
-		int i;
 
 		proj = palloc(sizeof(bool) * nvp);
-		for(i = 0; i < nvp; ++i)
-			proj[i] = true;
+		memset(proj, true, nvp);
 
 		scan = aocs_beginscan(OldHeap, GetActiveSnapshot(),
 								GetActiveSnapshot(),
@@ -1286,7 +1284,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		}
 		else if (is_ao_cols)
 		{
-			proj = palloc0(sizeof(bool) * nvp);
+			proj = palloc(sizeof(bool) * nvp);
 			memset(proj, true, nvp);
 			idesc = aocs_insert_init(NewHeap, RESERVED_SEGNO, false);			
 		}
@@ -1335,6 +1333,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		else if (is_ao_cols)
 		{
 			aocs_insert_finish(idesc);
+			pfree(proj);
 		}
 
 		tuplesort_end(tuplesort);
@@ -1346,14 +1345,14 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	/* Reset rd_toastoid just to be tidy --- it shouldn't be looked at again */
 	NewHeap->rd_toastoid = InvalidOid;
 
-	num_pages = acquire_number_of_blocks(NewHeap);
+	num_pages = AcquireNumberOfBlocks(NewHeap);
 
 	/* Log what we did */
 	ereport(elevel,
 			(errmsg("\"%s\": found %.0f removable, %.0f nonremovable row versions in %u pages",
 					RelationGetRelationName(OldHeap),
 					tups_vacuumed, num_tuples,
-					acquire_number_of_blocks(OldHeap)),
+					AcquireNumberOfBlocks(OldHeap)),
 			 errdetail("%.0f dead row versions cannot be removed yet.\n"
 					   "%s.",
 					   tups_recently_dead,

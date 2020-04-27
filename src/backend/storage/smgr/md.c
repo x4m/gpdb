@@ -2071,7 +2071,6 @@ _mdfd_getseg(SMgrRelation reln, ForkNumber forknum, BlockNumber blkno,
 					return NULL;
 				}
 
-				print_stack_trace();
 				ereport(ERROR,
 						(errcode_for_file_access(),
 						 errmsg("could not open file \"%s\" (target block %u): previous segment is only %u blocks",
