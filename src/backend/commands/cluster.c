@@ -1279,6 +1279,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 		if (is_ao_rows)
 		{
+			LockSegnoForWrite(NewHeap, RESERVED_SEGNO);
 			aoInsertDesc = appendonly_insert_init(NewHeap, RESERVED_SEGNO, false);
 			mt_bind = create_memtuple_binding(newTupDesc);
 		}
@@ -1286,6 +1287,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		{
 			proj = palloc(sizeof(bool) * nvp);
 			memset(proj, true, nvp);
+			LockSegnoForWrite(NewHeap, RESERVED_SEGNO);
 			idesc = aocs_insert_init(NewHeap, RESERVED_SEGNO, false);			
 		}
 
