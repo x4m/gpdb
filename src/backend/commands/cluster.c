@@ -1304,11 +1304,12 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			{
 				AOTupleId	aoTupleId;
 				heap_deform_tuple(tuple, oldTupDesc, values, isnull);
-				MemTuple mtuple = memtuple_form_to(mt_bind,
-											  values, isnull,
-											  NULL, NULL, false);
+				MemTuple mtuple = memtuple_form(mt_bind,
+											  values, isnull);
 
 				appendonly_insert(aoInsertDesc, mtuple, HeapTupleGetOid(tuple), &aoTupleId);
+				/* Probably it's a job of mt_bind to pfree tuple? */
+				pfree(mtuple);
 			}
 			else if (is_ao_cols)
 			{
