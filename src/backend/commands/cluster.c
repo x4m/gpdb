@@ -334,12 +334,10 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose, bool printEr
 	if (RelationIsAppendOptimized(OldHeap))
 	{
 		bool isBtree = false;
-		if (indexOid != InvalidOid)
-		{
-			Relation oldIndex = index_open(indexOid, AccessExclusiveLock);
-			isBtree = IS_BTREE(oldIndex);
-			index_close(oldIndex, NoLock);
-		}
+		Assert(indexOid != InvalidOid);
+		Relation oldIndex = index_open(indexOid, AccessExclusiveLock);
+		isBtree = IS_BTREE(oldIndex);
+		index_close(oldIndex, NoLock);
 
 		if (!isBtree)
 		{
