@@ -1102,6 +1102,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			num_tuples += 1;
 			Assert(tuplesort != NULL);
 			tuplesort_putheaptuple(tuplesort, tuple);
+			heap_freetuple(tuple);
 		}
 
 		ExecDropSingleTupleTableSlot(slot);
@@ -1138,6 +1139,7 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			num_tuples += 1;
 			Assert(tuplesort != NULL);
 			tuplesort_putheaptuple(tuplesort, tuple);
+			heap_freetuple(tuple);
 		}
 
 		ExecDropSingleTupleTableSlot(slot);
