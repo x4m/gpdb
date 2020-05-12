@@ -1285,15 +1285,12 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	int			natts;
 	Datum	   *values;
 	bool	   *isnull;
-	IndexScanDesc indexScan;
-	HeapScanDesc heapScan;
 	bool		use_wal;
 	bool		is_system_catalog;
 	TransactionId OldestXmin;
 	TransactionId FreezeXid;
 	MultiXactId MultiXactCutoff;
 	RewriteState rwstate;
-	bool		use_sort;
 	Tuplesortstate *tuplesort;
 	double		num_tuples = 0,
 				tups_vacuumed = 0,
@@ -1303,6 +1300,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	PGRUsage	ru0;
 	bool		is_ao_rows;
 	bool		is_ao_cols;
+	AOTupleId	aoTupleId;
 
 	pg_rusage_init(&ru0);
 
@@ -1313,10 +1311,17 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	OldHeap = heap_open(OIDOldHeap, AccessExclusiveLock);
 	is_ao_rows = RelationIsAoRows(OldHeap);
 	is_ao_cols = RelationIsAoCols(OldHeap);
+	Assert(is_ao_cols || is_ao_rows);
 	if (OidIsValid(OIDOldIndex))
 		OldIndex = index_open(OIDOldIndex, AccessExclusiveLock);
 	else
 		OldIndex = NULL;
+
+	if (OldIndex == NULL || !IS_BTREE(OldIndex))
+		ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("cannot cluster append-optimized table \"%s\"", RelationGetRelationName(OldHeap)),
+					errdetail("Append-optimized tables can only be clustered against a B-tree index")));
 
 	/*
 	 * Their tuple descriptors should be exactly alike, but here we only need
@@ -1423,68 +1428,16 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	rwstate = begin_heap_rewrite(OldHeap, NewHeap, OldestXmin, FreezeXid,
 								 MultiXactCutoff, use_wal);
 
-	/*
-	 * Decide whether to use an indexscan or seqscan-and-optional-sort to scan
-	 * the OldHeap.  We know how to use a sort to duplicate the ordering of a
-	 * btree index, and will use seqscan-and-sort for that case if the planner
-	 * tells us it's cheaper.  Otherwise, always indexscan if an index is
-	 * provided, else plain seqscan.
-	 */
-	if (OldIndex != NULL && IS_BTREE(OldIndex))
-		use_sort = is_ao_rows || is_ao_cols ||
-					plan_cluster_use_sort(OIDOldHeap, OIDOldIndex);
-	else
-		use_sort = false;
-
-	/* Set up sorting if wanted */
-	if (use_sort)
-		tuplesort = tuplesort_begin_cluster(oldTupDesc, OldIndex,
+	
+	tuplesort = tuplesort_begin_cluster(oldTupDesc, OldIndex,
 											maintenance_work_mem, false);
-	else
-		tuplesort = NULL;
 
-	indexScan = NULL;
-	heapScan = NULL;
-	/*
-	 * Prepare to scan the OldHeap.  To ensure we see recently-dead tuples
-	 * that still need to be copied, we scan with SnapshotAny and use
-	 * HeapTupleSatisfiesVacuum for the visibility test.
-	 */
-	if (OldIndex != NULL && !use_sort)
-	{
-		if (RelationIsAppendOptimized(OldHeap))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("cannot cluster append-optimized table \"%s\"", RelationGetRelationName(OldHeap)),
-					errdetail("Append-optimized tables can only be clustered against a B-tree index")));
-		}
-
-		indexScan = index_beginscan(OldHeap, OldIndex, SnapshotAny, 0, 0);
-		index_rescan(indexScan, NULL, 0, NULL, 0);
-	}
-	else if (!RelationIsAppendOptimized(OldHeap))
-	{
-		heapScan = heap_beginscan(OldHeap, SnapshotAny, 0, (ScanKey) NULL);
-	}
 
 	/* Log what we're doing */
-	if (indexScan != NULL)
-		ereport(elevel,
-				(errmsg("clustering \"%s.%s\" using index scan on \"%s\"",
-						get_namespace_name(RelationGetNamespace(OldHeap)),
-						RelationGetRelationName(OldHeap),
-						RelationGetRelationName(OldIndex))));
-	else if (tuplesort != NULL)
-		ereport(elevel,
-				(errmsg("clustering \"%s.%s\" using sequential scan and sort",
-						get_namespace_name(RelationGetNamespace(OldHeap)),
-						RelationGetRelationName(OldHeap))));
-	else
-		ereport(elevel,
-				(errmsg("vacuuming \"%s.%s\"",
-						get_namespace_name(RelationGetNamespace(OldHeap)),
-						RelationGetRelationName(OldHeap))));
+	ereport(elevel,
+			(errmsg("clustering \"%s.%s\" using sequential scan and sort",
+					get_namespace_name(RelationGetNamespace(OldHeap)),
+					RelationGetRelationName(OldHeap))));
 
 	if (is_ao_rows)
 	{
@@ -1525,7 +1478,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 		appendonly_endscan(aoscandesc);
 	}
-	else if (is_ao_cols)
+	else
 	{
 		AOCSScanDesc scan = NULL;
 		TupleTableSlot *slot = MakeSingleTupleTableSlot(oldTupDesc);
@@ -1563,149 +1516,31 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 		pfree(proj);
 	}
-	else
-	{
-		/*
-		* Scan through the OldHeap, either in OldIndex order or sequentially;
-		* copy each tuple into the NewHeap, or transiently to the tuplesort
-		* module.  Note that we don't bother sorting dead tuples (they won't get
-		* to the new table anyway).
-		*/
-		for (;;)
-		{
-			HeapTuple	tuple;
-			Buffer		buf;
-			bool		isdead;
 
-			CHECK_FOR_INTERRUPTS();
-
-			if (indexScan != NULL)
-			{
-				tuple = index_getnext(indexScan, ForwardScanDirection);
-				if (tuple == NULL)
-					break;
-
-				/* Since we used no scan keys, should never need to recheck */
-				if (indexScan->xs_recheck)
-					elog(ERROR, "CLUSTER does not support lossy index conditions");
-
-				buf = indexScan->xs_cbuf;
-			}
-			else
-			{
-				tuple = heap_getnext(heapScan, ForwardScanDirection);
-				if (tuple == NULL)
-					break;
-
-				buf = heapScan->rs_cbuf;
-			}
-
-			LockBuffer(buf, BUFFER_LOCK_SHARE);
-
-			switch (HeapTupleSatisfiesVacuum(OldHeap, tuple, OldestXmin, buf))
-			{
-				case HEAPTUPLE_DEAD:
-					/* Definitely dead */
-					isdead = true;
-					break;
-				case HEAPTUPLE_RECENTLY_DEAD:
-					tups_recently_dead += 1;
-					/* fall through */
-				case HEAPTUPLE_LIVE:
-					/* Live or recently dead, must copy it */
-					isdead = false;
-					break;
-				case HEAPTUPLE_INSERT_IN_PROGRESS:
-
-					/*
-					* Since we hold exclusive lock on the relation, normally the
-					* only way to see this is if it was inserted earlier in our
-					* own transaction.  However, it can happen in system
-					* catalogs, since we tend to release write lock before commit
-					* there.  Give a warning if neither case applies; but in any
-					* case we had better copy it.
-					*/
-					if (!is_system_catalog &&
-						!TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetXmin(tuple->t_data)))
-						elog(WARNING, "concurrent insert in progress within table \"%s\"",
-							RelationGetRelationName(OldHeap));
-					/* treat as live */
-					isdead = false;
-					break;
-				case HEAPTUPLE_DELETE_IN_PROGRESS:
-
-					/*
-					* Similar situation to INSERT_IN_PROGRESS case.
-					*/
-					if (!is_system_catalog &&
-						!TransactionIdIsCurrentTransactionId(HeapTupleHeaderGetUpdateXid(tuple->t_data)))
-						elog(WARNING, "concurrent delete in progress within table \"%s\"",
-							RelationGetRelationName(OldHeap));
-					/* treat as recently dead */
-					tups_recently_dead += 1;
-					isdead = false;
-					break;
-				default:
-					elog(ERROR, "unexpected HeapTupleSatisfiesVacuum result");
-					isdead = false; /* keep compiler quiet */
-					break;
-			}
-
-			LockBuffer(buf, BUFFER_LOCK_UNLOCK);
-
-			if (isdead)
-			{
-				tups_vacuumed += 1;
-				/* heap rewrite module still needs to see it... */
-				if (rewrite_heap_dead_tuple(rwstate, tuple))
-				{
-					/* A previous recently-dead tuple is now known dead */
-					tups_vacuumed += 1;
-					tups_recently_dead -= 1;
-				}
-				continue;
-			}
-
-			num_tuples += 1;
-			if (tuplesort != NULL)
-				tuplesort_putheaptuple(tuplesort, tuple);
-			else
-				reform_and_rewrite_tuple(tuple,
-										oldTupDesc, newTupDesc,
-										values, isnull,
-										NewHeap->rd_rel->relhasoids, rwstate);
-		}
-	}
-
-	if (indexScan != NULL)
-		index_endscan(indexScan);
-	if (heapScan != NULL)
-		heap_endscan(heapScan);
 
 	/*
-	 * In scan-and-sort mode, complete the sort, then read out all live tuples
+	 * Сomplete the sort, then read out all tuples
 	 * from the tuplestore and write them to the new relation.
 	 */
-	if (tuplesort != NULL)
+
+	tuplesort_performsort(tuplesort);
 	{
 		AppendOnlyInsertDesc 	aoInsertDesc = NULL;
 		MemTupleBinding*		mt_bind;
 		AOCSInsertDesc			idesc = NULL;
-		int						nvp = OldHeap->rd_att->natts;
 		bool				   *proj;
-		tuplesort_performsort(tuplesort);
+
+		int write_seg_no = ChooseSegnoForWrite(NewHeap);
 
 		if (is_ao_rows)
 		{
-			int write_seg_no = ChooseSegnoForWrite(NewHeap);
 			aoInsertDesc = appendonly_insert_init(NewHeap, write_seg_no, false);
 			mt_bind = create_memtuple_binding(newTupDesc);
 		}
-		else if (is_ao_cols)
+		else
 		{
-			int write_seg_no = ChooseSegnoForWrite(NewHeap);
-			proj = palloc(sizeof(bool) * nvp);
-			memset(proj, true, nvp);
+			proj = palloc(sizeof(bool) * natts);
+			memset(proj, true, natts);
 			idesc = aocs_insert_init(NewHeap, write_seg_no, false);
 		}
 
@@ -1722,7 +1557,6 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 			if (is_ao_rows)
 			{
-				AOTupleId	aoTupleId;
 				heap_deform_tuple(tuple, oldTupDesc, values, isnull);
 				MemTuple mtuple = memtuple_form(mt_bind,
 											  values, isnull);
@@ -1731,17 +1565,11 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 				/* Probably it's a job of mt_bind to pfree tuple? */
 				pfree(mtuple);
 			}
-			else if (is_ao_cols)
+			else
 			{
-				AOTupleId	aoTupleId;
 				heap_deform_tuple(tuple, oldTupDesc, values, isnull);
 				aocs_insert_values(idesc, values, isnull, &aoTupleId);
 			}
-			else
-				reform_and_rewrite_tuple(tuple,
-										oldTupDesc, newTupDesc,
-										values, isnull,
-										NewHeap->rd_rel->relhasoids, rwstate);
 
 			if (shouldfree)
 				heap_freetuple(tuple);
@@ -1783,8 +1611,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	pfree(values);
 	pfree(isnull);
 
-	if (OldIndex != NULL)
-		index_close(OldIndex, NoLock);
+	index_close(OldIndex, NoLock);
 	heap_close(OldHeap, NoLock);
 	heap_close(NewHeap, NoLock);
 
