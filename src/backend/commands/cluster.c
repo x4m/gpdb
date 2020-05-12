@@ -343,8 +343,8 @@ cluster_rel(Oid tableOid, Oid indexOid, bool recheck, bool verbose, bool printEr
 		{
 			ereport((printError ? ERROR : WARNING),
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("cannot cluster append-optimized table \"%s\": supported only for B-tree",
-							RelationGetRelationName(OldHeap))));
+					errmsg("cannot cluster append-optimized table \"%s\"", RelationGetRelationName(OldHeap)),
+					errdetail("Append-optimized tables can only be clustered against a B-tree index")));
 
 			relation_close(OldHeap, AccessExclusiveLock);
 			return false;
@@ -1036,8 +1036,8 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("cannot cluster append-optimized table \"%s\" without index: not supported",
-							RelationGetRelationName(OldHeap))));
+					errmsg("cannot cluster append-optimized table \"%s\"", RelationGetRelationName(OldHeap)),
+					errdetail("Append-optimized tables can only be clustered against a B-tree index")));
 		}
 
 		indexScan = index_beginscan(OldHeap, OldIndex, SnapshotAny, 0, 0);

@@ -12741,8 +12741,8 @@ ATExecClusterOn(Relation rel, const char *indexName, LOCKMODE lockmode)
 		if (!isBtree)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("cannot cluster append-optimized table \"%s\": only B-tree is supported",
-							RelationGetRelationName(rel))));
+					errmsg("cannot cluster append-optimized table \"%s\"", RelationGetRelationName(rel)),
+					errdetail("Append-optimized tables can only be clustered against a B-tree index")));
 	}
 
 
