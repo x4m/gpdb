@@ -1038,9 +1038,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					errmsg("cannot cluster append-optimized table \"%s\" without index: not supported",
 							RelationGetRelationName(OldHeap))));
-			
-			relation_close(OldHeap, AccessExclusiveLock);
-			return;
 		}
 
 		indexScan = index_beginscan(OldHeap, OldIndex, SnapshotAny, 0, 0);
@@ -1281,7 +1278,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		if (is_ao_rows)
 		{
 			int write_seg_no = ChooseSegnoForWrite(NewHeap);
-			LockSegnoForWrite(NewHeap, write_seg_no);
 			aoInsertDesc = appendonly_insert_init(NewHeap, write_seg_no, false);
 			mt_bind = create_memtuple_binding(newTupDesc);
 		}
@@ -1290,7 +1286,6 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			int write_seg_no = ChooseSegnoForWrite(NewHeap);
 			proj = palloc(sizeof(bool) * nvp);
 			memset(proj, true, nvp);
-			LockSegnoForWrite(NewHeap, write_seg_no);
 			idesc = aocs_insert_init(NewHeap, write_seg_no, false);
 		}
 
