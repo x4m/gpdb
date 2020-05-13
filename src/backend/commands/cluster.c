@@ -1298,9 +1298,16 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	BlockNumber num_pages;
 	int			elevel = verbose ? INFO : DEBUG2;
 	PGRUsage	ru0;
-	bool		is_ao_rows;
-	bool		is_ao_cols;
-	AOTupleId	aoTupleId;
+
+	bool					is_ao_rows;
+	bool					is_ao_cols;
+	AOTupleId				aoTupleId;
+	AppendOnlyInsertDesc 	aoInsertDesc = NULL;
+	MemTupleBinding*		mt_bind = NULL;
+	AOCSInsertDesc			idesc = NULL;
+	bool				   *proj;
+	int						write_seg_no;
+	MemTuple				mtuple = NULL;
 
 	pg_rusage_init(&ru0);
 
@@ -1442,10 +1449,10 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	if (is_ao_rows)
 	{
 		TupleTableSlot	*slot = MakeSingleTupleTableSlot(oldTupDesc);
-		MemTupleBinding *mt_bind = create_memtuple_binding(oldTupDesc);
-
 		AppendOnlyScanDesc aoscandesc = appendonly_beginscan(OldHeap, GetActiveSnapshot(),
 											GetActiveSnapshot(), 0, NULL);
+		mt_bind = create_memtuple_binding(oldTupDesc);
+
 
 		while (appendonly_getnext(aoscandesc, ForwardScanDirection, slot))
 		{
@@ -1482,11 +1489,9 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	{
 		AOCSScanDesc scan = NULL;
 		TupleTableSlot *slot = MakeSingleTupleTableSlot(oldTupDesc);
-		bool *proj = NULL;
-		int nvp = oldTupDesc->natts;
 
-		proj = palloc(sizeof(bool) * nvp);
-		memset(proj, true, nvp);
+		proj = palloc(sizeof(bool) * natts);
+		memset(proj, true, natts);
 
 		scan = aocs_beginscan(OldHeap, GetActiveSnapshot(),
 								GetActiveSnapshot(),
@@ -1513,8 +1518,6 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 		ExecDropSingleTupleTableSlot(slot);
 		aocs_endscan(scan);
-
-		pfree(proj);
 	}
 
 
@@ -1524,68 +1527,72 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	 */
 
 	tuplesort_performsort(tuplesort);
-	{
-		AppendOnlyInsertDesc 	aoInsertDesc = NULL;
-		MemTupleBinding*		mt_bind;
-		AOCSInsertDesc			idesc = NULL;
-		bool				   *proj;
+	
+	write_seg_no = ChooseSegnoForWrite(NewHeap);
 
-		int write_seg_no = ChooseSegnoForWrite(NewHeap);
+	if (is_ao_rows)
+	{
+		aoInsertDesc = appendonly_insert_init(NewHeap, write_seg_no, false);
+	}
+	else
+	{
+		memset(proj, true, natts);
+		idesc = aocs_insert_init(NewHeap, write_seg_no, false);
+	}
+
+	for (;;)
+	{
+		HeapTuple	tuple;
+		uint32		prev_memtuple_len = 0;
+		bool		shouldfree;
+
+		CHECK_FOR_INTERRUPTS();
+
+		tuple = tuplesort_getheaptuple(tuplesort, true, &shouldfree);
+		if (tuple == NULL)
+			break;
 
 		if (is_ao_rows)
 		{
-			aoInsertDesc = appendonly_insert_init(NewHeap, write_seg_no, false);
-			mt_bind = create_memtuple_binding(newTupDesc);
+			uint32		len;
+			uint32		null_save_len;
+			bool		has_nulls;
+			heap_deform_tuple(tuple, oldTupDesc, values, isnull);
+
+			len = compute_memtuple_size(mt_bind, values, isnull, &null_save_len, &has_nulls);
+			if (len > prev_memtuple_len)
+			{
+				if (mtuple != NULL)
+					pfree(mtuple);
+				mtuple = palloc(len);
+				prev_memtuple_len = len;
+			}
+
+			memtuple_form_to(mt_bind, values, isnull, len, null_save_len, has_nulls,
+					 mtuple);
+
+			appendonly_insert(aoInsertDesc, mtuple, HeapTupleGetOid(tuple), &aoTupleId);
 		}
 		else
 		{
-			proj = palloc(sizeof(bool) * natts);
-			memset(proj, true, natts);
-			idesc = aocs_insert_init(NewHeap, write_seg_no, false);
+			heap_deform_tuple(tuple, oldTupDesc, values, isnull);
+			aocs_insert_values(idesc, values, isnull, &aoTupleId);
 		}
 
-		for (;;)
-		{
-			HeapTuple	tuple;
-			bool		shouldfree;
+		if (shouldfree)
+			heap_freetuple(tuple);
+	}
 
-			CHECK_FOR_INTERRUPTS();
+	tuplesort_end(tuplesort);
 
-			tuple = tuplesort_getheaptuple(tuplesort, true, &shouldfree);
-			if (tuple == NULL)
-				break;
-
-			if (is_ao_rows)
-			{
-				heap_deform_tuple(tuple, oldTupDesc, values, isnull);
-				MemTuple mtuple = memtuple_form(mt_bind,
-											  values, isnull);
-
-				appendonly_insert(aoInsertDesc, mtuple, HeapTupleGetOid(tuple), &aoTupleId);
-				/* Probably it's a job of mt_bind to pfree tuple? */
-				pfree(mtuple);
-			}
-			else
-			{
-				heap_deform_tuple(tuple, oldTupDesc, values, isnull);
-				aocs_insert_values(idesc, values, isnull, &aoTupleId);
-			}
-
-			if (shouldfree)
-				heap_freetuple(tuple);
-		}
-
-		if (is_ao_rows)
-		{
-			appendonly_insert_finish(aoInsertDesc);
-		}
-		else if (is_ao_cols)
-		{
-			aocs_insert_finish(idesc);
-			pfree(proj);
-		}
-
-		tuplesort_end(tuplesort);
+	if (is_ao_rows)
+	{
+		appendonly_insert_finish(aoInsertDesc);
+	}
+	else if (is_ao_cols)
+	{
+		aocs_insert_finish(idesc);
+		pfree(proj);
 	}
 
 	/* Write out any remaining tuples, and fsync if needed */
@@ -1610,6 +1617,9 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	/* Clean up */
 	pfree(values);
 	pfree(isnull);
+
+	if (mtuple != NULL)
+		pfree(mtuple);
 
 	index_close(OldIndex, NoLock);
 	heap_close(OldHeap, NoLock);
