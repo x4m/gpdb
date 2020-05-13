@@ -1309,7 +1309,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	AppendOnlyInsertDesc 	aoInsertDesc = NULL;
 	MemTupleBinding*		mt_bind = NULL;
 	AOCSInsertDesc			idesc = NULL;
-	bool				   *proj;
+	bool				   *proj = NULL;
 	int						write_seg_no;
 	MemTuple				mtuple = NULL;
 
