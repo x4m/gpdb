@@ -1267,7 +1267,11 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 /*
  * Do the physical copying of AO-table data.
  *
- * function is similar to copy_heap_data().
+ * This function is similar to copy_heap_data(),
+ * shares some code with copy_heap_data() and was designed
+ * in a way to reduce complexity of compatilibity with PG.
+ * Probably, we could further split it into AO and AOCS,
+ * if storges will have different clusterisation logic.
  */
 static void
 copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
@@ -1324,6 +1328,15 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	else
 		OldIndex = NULL;
 
+	/*
+	 * Curently AO storage lacks cost model for IndexScan, thus IndexScan
+	 * is not functional. In future, probably, this will be fixed and CLUSTER
+	 * command will support this. Though, random IO over AO on TID stream
+	 * can be impractical anyway.
+	 * Here we are sorting data on on the lines of heap tables, build a tuple
+	 * sort state and sort the entire AO table using the index key, rewrite
+	 * the table, one tuple at a time, in order as returned by tuple sort state.
+	 */
 	if (OldIndex == NULL || !IS_BTREE(OldIndex))
 		ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1338,7 +1351,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	newTupDesc = RelationGetDescr(NewHeap);
 	Assert(newTupDesc->natts == oldTupDesc->natts);
 
-	/* Preallocate values/isnull arrays */
+	/* Preallocate values/isnull arrays to deform heap tuples after sort */
 	natts = newTupDesc->natts;
 	values = (Datum *) palloc(natts * sizeof(Datum));
 	isnull = (bool *) palloc(natts * sizeof(bool));
@@ -1446,13 +1459,13 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 					get_namespace_name(RelationGetNamespace(OldHeap)),
 					RelationGetRelationName(OldHeap))));
 
+	/* Scan through old table to convert data into heap tuples for sorting */
 	if (is_ao_rows)
 	{
 		TupleTableSlot	*slot = MakeSingleTupleTableSlot(oldTupDesc);
 		AppendOnlyScanDesc aoscandesc = appendonly_beginscan(OldHeap, GetActiveSnapshot(),
 											GetActiveSnapshot(), 0, NULL);
 		mt_bind = create_memtuple_binding(oldTupDesc);
-
 
 		while (appendonly_getnext(aoscandesc, ForwardScanDirection, slot))
 		{
@@ -1540,6 +1553,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 		idesc = aocs_insert_init(NewHeap, write_seg_no, false);
 	}
 
+	/* Insert sorted heap tuples into new storage */
 	for (;;)
 	{
 		HeapTuple	tuple;
@@ -1562,6 +1576,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			len = compute_memtuple_size(mt_bind, values, isnull, &null_save_len, &has_nulls);
 			if (len > prev_memtuple_len)
 			{
+				/* Here we are trying to avoid reallocation of temp mtuple */
 				if (mtuple != NULL)
 					pfree(mtuple);
 				mtuple = palloc(len);
@@ -1585,6 +1600,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 	tuplesort_end(tuplesort);
 
+	/* Finish and deallocate insertion */
 	if (is_ao_rows)
 	{
 		appendonly_insert_finish(aoInsertDesc);
