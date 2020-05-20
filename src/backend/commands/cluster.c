@@ -1293,9 +1293,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	TransactionId FreezeXid;
 	MultiXactId MultiXactCutoff;
 	Tuplesortstate *tuplesort;
-	double		num_tuples = 0,
-				tups_vacuumed = 0,
-				tups_recently_dead = 0;
+	double		num_tuples = 0;
 	BlockNumber num_pages;
 	int			elevel = verbose ? INFO : DEBUG2;
 	PGRUsage	ru0;
@@ -1471,7 +1469,6 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			}
 
 			num_tuples += 1;
-			Assert(tuplesort != NULL);
 			tuplesort_putheaptuple(tuplesort, tuple);
 			heap_freetuple(tuple);
 		}
@@ -1506,7 +1503,6 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 			tuple = heap_form_tuple(oldTupDesc, slot_values, slot_isnull);
 
 			num_tuples += 1;
-			Assert(tuplesort != NULL);
 			tuplesort_putheaptuple(tuplesort, tuple);
 			heap_freetuple(tuple);
 		}
@@ -1600,13 +1596,11 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 	/* Log what we did */
 	ereport(elevel,
-			(errmsg("\"%s\": found %.0f removable, %.0f nonremovable row versions in %u pages",
+			(errmsg("\"%s\": found %.0f row versions in %u pages",
 					RelationGetRelationName(OldHeap),
-					tups_vacuumed, num_tuples,
+					num_tuples,
 					AcquireNumberOfBlocks(OldHeap)),
-			 errdetail("%.0f dead row versions cannot be removed yet.\n"
-					   "%s.",
-					   tups_recently_dead,
+			 errdetail("%s.",
 					   pg_rusage_show(&ru0))));
 
 	/* Clean up */
