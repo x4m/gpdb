@@ -1304,7 +1304,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	bool					is_ao_rows;
 	bool					is_ao_cols;
 	AOTupleId				aoTupleId;
-	AppendOnlyInsertDesc 	aoInsertDesc = NULL;
+	AppendOnlyInsertDesc	aoInsertDesc = NULL;
 	MemTupleBinding*		mt_bind = NULL;
 	AOCSInsertDesc			idesc = NULL;
 	bool				   *proj = NULL;
