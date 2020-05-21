@@ -900,6 +900,9 @@ copy_heap_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 	else
 		OldIndex = NULL;
 
+	/* AO storges should use ao_copy_data() instead */
+	Assert(!RelationIsAppendOptimized(OldHeap));
+
 	/*
 	 * Their tuple descriptors should be exactly alike, but here we only need
 	 * assume that they have the same number of columns.
