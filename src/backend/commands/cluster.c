@@ -1464,6 +1464,7 @@ copy_ao_data(Oid OIDNewHeap, Oid OIDOldHeap, Oid OIDOldIndex, bool verbose,
 
 			if (mtbind_has_oid(mt_bind))
 			{
+				/* Copy OID */
 				tupleOid = MemTupleGetOid(TupGetMemTuple(slot), mt_bind);
 				HeapTupleSetOid(tuple, tupleOid);
 			}
