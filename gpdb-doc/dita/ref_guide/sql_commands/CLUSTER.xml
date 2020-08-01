@@ -7,8 +7,8 @@ Not a recommended operation in Greenplum Database.</p><section id="section2"><ti
 CLUSTER [VERBOSE] <varname>tablename</varname>
 
 CLUSTER [VERBOSE]</codeblock></section><section id="section3"><title>Description</title><p><codeph>CLUSTER</codeph> orders a heap storage table based on an index.
-<codeph>CLUSTER</codeph> on non-B-tree indexes is not supported on append-optmized storage
-tables. Clustering an index means that the records are physically ordered
+<codeph>CLUSTER</codeph> on append-optmized storage tables is not MVCC-safe and is only supported on B-tree indexes.
+Clustering an index means that the records are physically ordered
 on disk according to the index information. If the records you need are
 distributed randomly on disk, then the database has to seek across the
 disk to get the records requested. If those records are stored more closely
@@ -81,7 +81,10 @@ same table page, and so you save disk accesses and speed up the query.
                                 you can cluster the tables you want clustered manually the first
                                 time, then set up a periodic maintenance script that executes
                                         <codeph>CLUSTER</codeph> without any parameters, so that the
-                                desired tables are periodically reclustered.</p><note><codeph>CLUSTER</codeph> on non-B-tree indexes is not supported with append-optimized tables.</note></section><section id="section6"><title>Examples</title><p>Cluster the table <codeph>employees</codeph> on the basis of its index
+                                desired tables are periodically reclustered.</p>
+                                <note><codeph>CLUSTER</codeph> on append-optmized storage tables is not MVCC-safe and is only supported on B-tree indexes.
+                                After clustering, the AO table will appear empty to concurrent transactions, if they are using a snapshot taken before the truncation occurred.</note>
+                                </section><section id="section6"><title>Examples</title><p>Cluster the table <codeph>employees</codeph> on the basis of its index
         <codeph>emp_ind</codeph>:</p><codeblock>CLUSTER emp_ind ON emp;</codeblock><p>Cluster a large table by recreating it and loading it in the correct index
 order:</p><codeblock>CREATE TABLE newtable AS SELECT * FROM table ORDER BY column;
 DROP table;

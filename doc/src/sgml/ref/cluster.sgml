@@ -183,6 +183,13 @@ CLUSTER [VERBOSE]
     are periodically reclustered.
    </para>
 
+  <para>
+   <command>CLUSTER<command/> against AO tables is not MVCC-safe. After clustering,
+   the table will appear empty to concurrent transactions, if they are using
+   a snapshot taken before the truncation occurred.
+   See <xref linkend="mvcc-caveats"> for more details.
+  </para>
+
  </refsect1>
 
  <refsect1>
