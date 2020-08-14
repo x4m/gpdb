@@ -83,7 +83,7 @@ same table page, and so you save disk accesses and speed up the query.
                                         <codeph>CLUSTER</codeph> without any parameters, so that the
                                 desired tables are periodically reclustered.</p>
                                 <note><codeph>CLUSTER</codeph> on append-optmized storage tables is not MVCC-safe and is only supported on B-tree indexes.
-                                After clustering, the AO table will appear empty to concurrent transactions, if they are using a snapshot taken before the truncation occurred.</note>
+                                After clustering, the append-optimized table will appear empty to concurrent transactions, if they are using a snapshot taken before the clustering started.</note>
                                 </section><section id="section6"><title>Examples</title><p>Cluster the table <codeph>employees</codeph> on the basis of its index
         <codeph>emp_ind</codeph>:</p><codeblock>CLUSTER emp_ind ON emp;</codeblock><p>Cluster a large table by recreating it and loading it in the correct index
 order:</p><codeblock>CREATE TABLE newtable AS SELECT * FROM table ORDER BY column;

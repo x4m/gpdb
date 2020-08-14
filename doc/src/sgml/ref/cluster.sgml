@@ -184,9 +184,9 @@ CLUSTER [VERBOSE]
    </para>
 
   <para>
-   <command>CLUSTER<command/> against AO tables is not MVCC-safe. After clustering,
-   the table will appear empty to concurrent transactions, if they are using
-   a snapshot taken before the truncation occurred.
+   <command>CLUSTER<command/> against append-optimized tables is not MVCC-safe.
+   After clustering, the table will appear empty to concurrent transactions, if
+   they are using a snapshot taken before the clustering started.
    See <xref linkend="mvcc-caveats"> for more details.
   </para>
 

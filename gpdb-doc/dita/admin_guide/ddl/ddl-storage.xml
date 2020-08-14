@@ -84,9 +84,9 @@
           to abort. <codeph>DECLARE...FOR UPDATE</codeph> and triggers
           are not supported with append-optimized tables. <codeph>CLUSTER</codeph> on
           append-optimized tables is only supported over B-tree indexes and is not MVCC-safe.
-          <codeph>CLUSTER<codeph/> against AO tables is not MVCC-safe. After clustering,
-          the AO table will appear empty to concurrent transactions, if they are using
-          a snapshot taken before the truncation occurred.</p>
+          <codeph>CLUSTER<codeph/> against append-optimized tables is not MVCC-safe. After clustering,
+          the append-optimized table will appear empty to concurrent transactions, if they are using
+          a snapshot taken before the clustering started.</p>
       </section>
     </body>
   </topic>
