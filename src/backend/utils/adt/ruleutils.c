@@ -1893,7 +1893,7 @@ pg_get_expr_ext(PG_FUNCTION_ARGS)
 	int			prettyFlags;
 	char		*relname;
 	text		*result;
-	Relation	rel;
+	Relation	rel = NULL;
 
 	prettyFlags = pretty ? (PRETTYFLAG_PAREN | PRETTYFLAG_INDENT | PRETTYFLAG_SCHEMA) : PRETTYFLAG_INDENT;
 
@@ -1918,7 +1918,7 @@ pg_get_expr_ext(PG_FUNCTION_ARGS)
 		 * fragile, so GPDB holds a AccessShareLock here to make tests stable.
 		 *
 		 * We pass noWait == true, to avoid interference with locked partitions.
-		 * Main purpose of this lock was to stbilize tests, which should not be
+		 * Main purpose of this lock was to stabilize tests, which should not be
 		 * affected if we return NULLs for concurrently dropped partitions.
 		 */
 		rel = try_relation_open(relid, AccessShareLock, true);
