@@ -1904,29 +1904,34 @@ pg_get_expr_ext(PG_FUNCTION_ARGS)
 		/* See notes above */
 		if (relname == NULL)
 			PG_RETURN_NULL();
+
+		/*
+		 * CDB: hold the AccessShareLock in case some transactions drop it concurrently.
+		 *
+		 * Since here, if the table that the relid tells is dropped, an error will raise
+		 * later when opening the relation to get column names.
+		 *
+		 * pg_get_expr() is used by GPDB add-on view 'pg_partitions' which is widely
+		 * used by regression tests for partition tables. Lots of parallel test cases
+		 * issue view pg_partitions and drop partitions concurrently, so those cases
+		 * are very flaky. Serialize test cases will cost more testing time and be
+		 * fragile, so GPDB holds a AccessShareLock here to make tests stable.
+		 *
+		 * We pass noWait == true, to avoid interference with locked partitions.
+		 * Main purpose of this lock was to stbilize tests, which should not be
+		 * affected if we return NULLs for concurrently dropped partitions.
+		 */
+		rel = try_relation_open(relid, AccessShareLock, true);
+
+		if (!rel)
+			PG_RETURN_NULL();
 	}
 	else
 		relname = NULL;
 
-	/* 
-	 * CDB: hold the AccessShareLock in case some transactions drop it concurrently.
-	 *
-	 * Since here, if the table that the relid tells is dropped, an error will raise
-	 * later when opening the relation to get column names.
-	 *
-	 * pg_get_expr() is used by GPDB add-on view 'pg_partitions' which is widely
-	 * used by regression tests for partition tables. Lots of parallel test cases
-	 * issue view pg_partitions and drop partitions concurrently, so those cases
-	 * are very flaky. Serialize test cases will cost more testing time and be
-	 * fragile, so GPDB holds a AccessShareLock here to make tests stable.
-	 */
-	rel = try_relation_open(relid, AccessShareLock, false);
-
-	if (!rel)
-		PG_RETURN_NULL();
-
 	result = pg_get_expr_worker(expr, relid, relname, prettyFlags);
-	relation_close(rel, AccessShareLock);
+	if (rel)
+		relation_close(rel, AccessShareLock);
 
 	PG_RETURN_TEXT_P(result);
 }
