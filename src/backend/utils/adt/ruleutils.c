@@ -1840,7 +1840,7 @@ pg_get_expr(PG_FUNCTION_ARGS)
 	int			prettyFlags;
 	char		*relname;
 	text		*result;
-	Relation	rel;
+	Relation	rel = NULL;
 
 	prettyFlags = PRETTYFLAG_INDENT;
 
