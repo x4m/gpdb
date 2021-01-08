@@ -823,12 +823,12 @@ create view pg_partitions as
                       partition by pp.oid, cl.relname, pp.parlevel, cl3.relname
                       order by pr1.parisdefault, pr1.parruleord) 
                   end as partitionrank, 
-              pg_get_expr(pr1.parlistvalues, 0) as partitionlistvalues, 
-              pg_get_expr(pr1.parrangestart, 0) as partitionrangestart, 
+              pg_get_expr(pr1.parlistvalues, pr1.parchildrelid) as partitionlistvalues, 
+              pg_get_expr(pr1.parrangestart, pr1.parchildrelid) as partitionrangestart, 
               pr1.parrangestartincl as partitionstartinclusive, 
-              pg_get_expr(pr1.parrangeend, 0) as partitionrangeend, 
+              pg_get_expr(pr1.parrangeend, pr1.parchildrelid) as partitionrangeend, 
               pr1.parrangeendincl as partitionendinclusive, 
-              pg_get_expr(pr1.parrangeevery, 0) as partitioneveryclause, 
+              pg_get_expr(pr1.parrangeevery, pr1.parchildrelid) as partitioneveryclause, 
               min(pr1.parruleord) over(
                   partition by pp.oid, cl.relname, pp.parlevel, cl3.relname
                   order by pr1.parruleord) as partitionnodefault, 
@@ -923,12 +923,12 @@ p.parlevel as partitionlevel,
 pr1.parruleord as partitionposition,
 rank() over (partition by p.oid, cl.relname, p.parlevel 
 			 order by pr1.parruleord) as partitionrank,
-pg_get_expr(pr1.parlistvalues, 0) as partitionlistvalues,
-pg_get_expr(pr1.parrangestart, 0) as partitionrangestart,
+pg_get_expr(pr1.parlistvalues, p.parrelid) as partitionlistvalues,
+pg_get_expr(pr1.parrangestart, p.parrelid) as partitionrangestart,
 pr1.parrangestartincl as partitionstartinclusive,
-pg_get_expr(pr1.parrangeend, 0) as partitionrangeend,
+pg_get_expr(pr1.parrangeend, p.parrelid) as partitionrangeend,
 pr1.parrangeendincl as partitionendinclusive,
-pg_get_expr(pr1.parrangeevery, 0) as partitioneveryclause,
+pg_get_expr(pr1.parrangeevery, p.parrelid) as partitioneveryclause,
 
 min(pr1.parruleord) over (partition by p.oid, cl.relname, p.parlevel
 	order by pr1.parruleord) as partitionnodefault,
