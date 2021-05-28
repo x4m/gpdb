@@ -21,10 +21,10 @@ MASTER=${DATADIR}/qddir/demoDataDir-1
 PRIMARY1=${DATADIR}/dbfast1/demoDataDir0
 PRIMARY2=${DATADIR}/dbfast2/demoDataDir1
 PRIMARY3=${DATADIR}/dbfast3/demoDataDir2
-MASTER_PORT=7000
-PRIMARY1_PORT=7002
-PRIMARY2_PORT=7003
-PRIMARY3_PORT=7004
+MASTER_PORT=6000
+PRIMARY1_PORT=6002
+PRIMARY2_PORT=6003
+PRIMARY3_PORT=6004
 
 # Set up temporary directories to store the basebackups and the WAL
 # archives that will be used for Point-In-Time Recovery later.
@@ -78,7 +78,7 @@ echo "Setting up WAL Archiving configurations..."
 for segment_role in MASTER PRIMARY1 PRIMARY2 PRIMARY3; do
   ARCHIVE_VAR=ARCHIVE_$segment_role
   DATADIR_VAR=$segment_role
-  echo "wal_level = replica
+  echo "wal_level = hot_standby
 archive_mode = on
 archive_command = 'cp %p ${!ARCHIVE_VAR}/%f'" >> ${!DATADIR_VAR}/postgresql.conf
   mkdir -p ${!ARCHIVE_VAR}
